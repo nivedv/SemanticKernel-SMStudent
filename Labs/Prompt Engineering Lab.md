@@ -2,6 +2,8 @@
 
 ## For Data Engineers, Business Analysts, and Data Analysts
 
+## Prepare by Nived Varma
+
 ---
 
 ## DATA ENGINEERS - Practice Labs
