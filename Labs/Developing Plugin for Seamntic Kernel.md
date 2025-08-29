@@ -1,152 +1,302 @@
-# Create Semantic Kernel Plugins
+# Run Prompts with Semantic Kernel
+
+## Preapred by Nived Varma
 
 ## Exercise Overview
 
-In this exercise, you'll use Semantic Kernel to create an AI assistant that can search for and book flights for a user. You'll create custom plugin functions to help accomplish the task.
+In this exercise, you'll use Semantic Kernel to create an AI assistant that can provide career advice using prompt templates. You'll learn how to build and run different types of prompt templates including Semantic Kernel templates and Handlebars templates.
 
 **Duration:** Approximately 15 minutes to complete
 
-## Creating Plugin Functions
+## Setup Instructions
 
-### Step 1: Create the Flight Booking Plugin
+### Step 1: Set up Azure AI Resources
 
-1. Edit the plugin file:
+1. Open the [Azure AI Foundry portal](https://ai.azure.com) in a web browser and sign in using your Azure credentials
+2. Close any tips or quick start panes that appear on first sign-in
+3. Navigate to the home page using the Azure AI Foundry logo at the top left
+4. In the navigation pane on the left, select **Overview** to see the main page for your project
 
-   **For Python:**
+> **Note:** If an "Insufficient permissions" error is displayed, use the Fix me button to resolve it.
+
+5. Under the **Libraries** section of the overview page, select **Azure OpenAI**
+6. Keep note of your endpoint and API key - you'll need these for the next task
+
+### Step 2: Set up Development Environment
+
+1. Open a new browser tab and navigate to the [Azure portal](https://portal.azure.com)
+2. Sign in with your Azure credentials if prompted
+3. Use the `[>_]` button to create a new Cloud Shell with PowerShell environment
+4. In the cloud shell toolbar Settings menu, select **Go to Classic version**
+5. Clone the repository:
 
    ```bash
-   code flight_booking_plugin.py
+   rm -r mslearn-ai-semantic-kernel -f
+   git clone https://github.com/MicrosoftLearning/mslearn-ai-semantic-kernel mslearn-ai-semantic-kernel
    ```
 
-2. Add the search flights function:
-
-   **Python:**
-
-   ```python
-   # Create a plugin function with kernel function attributes
-   @kernel_function(description="Searches for available flights based on the destination and departure date in the format YYYY-MM-DD")
-   def search_flights(self, destination, departure_date):
-       # Filter flights based on destination
-       matching_flights = [
-           flight for flight in self.flights
-           if flight.Destination.lower() == destination.lower() and flight.DepartureDate == departure_date
-       ]
-       return matching_flights
+6. Navigate to the Python folder:
+   ```bash
+   cd mslearn-ai-semantic-kernel/Labfiles/02-run-prompts/Python
    ```
 
-3. Add the book flight function:
+### Step 3: Install Dependencies
 
-   **Python:**
+```bash
+python -m venv labenv
+./labenv/bin/Activate.ps1
+pip install python-dotenv semantic-kernel[azure]
+```
 
-   ```python
-   # Create a kernel function to book flights
-   @kernel_function(description="Books a flight based on the flight ID provided")
-   def book_flight(self, flight_id):
-       # Add logic to book a flight
-       flight = next((f for f in self.flights if f.Id == flight_id), None)
-       if flight is None:
-           return "Flight not found. Please provide a valid flight ID."
-       if flight.IsBooked:
-           return "You've already booked this flight."
-       flight.IsBooked = True
-       self.save_flights_to_file()
-       return (
-           f"Flight booked successfully! Airline: {flight.Airline}, "
-           f"Destination: {flight.Destination}, Departure: {flight.DepartureDate}, "
-           f"Price: ${flight.Price}."
-       )
+### Step 4: Configure API Settings
+
+1. Edit the configuration file:
+
+   ```bash
+   code .env
    ```
 
-### Step 2: Register the Plugin
+2. Replace the placeholders with your actual values:
+
+   - `your_project_endpoint` - Your Azure OpenAI endpoint
+   - `your_project_api_key` - Your Azure OpenAI API key
+   - `your_deployment_name` - Your gpt-4o model deployment name
+
+3. Save the file (Ctrl+S) and quit the editor (Ctrl+Q)
+
+## Creating and Running Prompt Templates
+
+### Step 1: Set up the Kernel and Chat Components
 
 1. Edit the main program file:
 
-   **For Python:**
-
    ```bash
-   code plugins.py
+   code prompts.py
    ```
 
-2. Add the plugin to the kernel:
-
-   **Python:**
+2. Add the kernel setup code:
 
    ```python
-   # Add the plugin to the kernel
-   kernel.add_plugin(FlightBookingPlugin(), "flight_booking_plugin")
-   ```
-
-3. Configure function choice behavior:
-
-   **Python:**
-
-   ```python
-   # Configure function choice behavior
-   settings = AzureChatPromptExecutionSettings(
-       function_choice_behavior=FunctionChoiceBehavior.Auto(),
+   # Create a kernel with Azure OpenAI chat completion
+   kernel = Kernel()
+   chat_completion = AzureChatCompletion(
+       api_key=api_key,
+       endpoint=endpoint,
+       deployment_name=deployment_name
    )
+   kernel.add_service(chat_completion)
    ```
 
-### Step 3: Test the Complete Plugin
+3. Add chat history initialization:
+
+   ```python
+   # Create the chat history
+   chat_history = ChatHistory()
+   ```
+
+4. Add the reply handling function:
+   ```python
+   # Get the reply from the chat completion service
+   reply = await chat_completion.get_chat_message_content(
+       chat_history=chat_history,
+       kernel=kernel,
+       settings=AzureChatPromptExecutionSettings()
+   )
+   print("Assistant:", reply)
+   chat_history.add_assistant_message(str(reply))
+   ```
+
+### Step 2: Create a Semantic Kernel Prompt Template
+
+This template will provide career role recommendations in JSON format.
+
+```python
+# Create a semantic kernel prompt template
+sk_prompt_template = KernelPromptTemplate(
+    prompt_template_config=PromptTemplateConfig(
+        template="""
+You are a helpful career advisor. Based on the users's skills and interest, suggest up to 5 suitable roles.
+Return the output as JSON in the following format:
+"Role Recommendations":
+{
+"recommendedRoles": [],
+"industries": [],
+"estimatedSalaryRange": ""
+}
+My skills are: {{$skills}}. My interests are: {{$interests}}. What are some roles that would be suitable for me?
+""",
+        name="recommend_roles_prompt",
+        template_format="semantic-kernel",
+    )
+)
+```
+
+### Step 3: Render and Execute the Semantic Kernel Prompt
+
+```python
+# Render the Semantic Kernel prompt with arguments
+sk_rendered_prompt = await sk_prompt_template.render(
+    kernel,
+    KernelArguments(
+        skills="Software Engineering, C#, Python, Drawing, Guitar, Dance",
+        interests="Education, Psychology, Programming, Helping Others"
+    )
+)
+
+# Add the Semantic Kernel prompt to the chat history and get the reply
+chat_history.add_user_message(sk_rendered_prompt)
+await get_reply()
+```
+
+### Step 4: Create a Handlebars Template for Skill Gap Analysis
+
+This template will analyze skill gaps and recommend courses.
+
+```python
+# Create a handlebars template
+hb_prompt_template = HandlebarsPromptTemplate(
+    prompt_template_config=PromptTemplateConfig(
+        template="""
+<message role="system">
+Instructions: You are a career advisor. Analyze the skill gap between
+the user's current skills and the requirements of the target role.
+</message>
+<message role="user">Target Role: {{targetRole}}</message>
+<message role="user">Current Skills: {{currentSkills}}</message>
+<message role="assistant">
+"Skill Gap Analysis":
+{
+"missingSkills": [],
+"coursesToTake": [],
+"certificationSuggestions": []
+}
+</message>
+""",
+        name="missing_skills_prompt",
+        template_format="handlebars",
+    )
+)
+```
+
+### Step 5: Render and Execute the Handlebars Prompt
+
+```python
+# Render the Handlebars prompt with arguments
+hb_rendered_prompt = await hb_prompt_template.render(
+    kernel,
+    KernelArguments(
+        targetRole="Game Developer",
+        currentSkills="Software Engineering, C#, Python, Drawing, Guitar, Dance"
+    )
+)
+
+# Add the Handlebars prompt to the chat history and get the reply
+chat_history.add_user_message(hb_rendered_prompt)
+await get_reply()
+```
+
+### Step 6: Add Interactive User Input
+
+```python
+# Get a follow-up prompt from the user
+print("Assistant: How can I help you?")
+user_input = input("User: ")
+
+# Add the user input to the chat history and get the reply
+chat_history.add_user_message(user_input)
+await get_reply()
+```
+
+### Step 7: Test the Application
 
 1. Save your changes (Ctrl+S)
 
 2. Run the application:
 
-   **Python:**
-
    ```bash
-   python plugins.py
+   python prompts.py
    ```
 
-3. Expected output:
+3. Expected output for the first prompt (role recommendations):
 
-   ```
-   User: Find me a flight to Tokyo on the 19
-   Assistant: I found a flight to Tokyo on January 19th.
-   - Airline: Air Japan
-   - Price: $1200
-   Would you like to book this flight?
-
-   User: Yes
-   Assistant: Congratulations! Your flight to Tokyo on January 19th with Air Japan has been successfully booked.
-   The total price for the flight is $1200.
-   ```
-
-## Configuring Function Access Control
-
-Now configure your kernel to only allow specific functions. The assistant should answer questions about flight availability but not allow booking.
-
-1. Update the function choice behavior configuration:
-
-   **Python:**
-
-   ```python
-   # Configure function choice behavior
-   settings=AzureChatPromptExecutionSettings(
-       function_choice_behavior=FunctionChoiceBehavior.Auto(filters={"included_functions": ["search_flights"]}),
-   )
+   ```json
+   Assistant: "Role Recommendations":
+   {
+   "recommendedRoles": [
+       "Educational Software Developer",
+       "Psychology-Based Game Designer",
+       "Learning Management System Specialist",
+       "Technology Trainer/Instructor",
+       "Creative Programmer for Arts-Based Applications"
+   ],
+   "industries": [
+       "Education Technology",
+       "Game Development and Psychology",
+       "Software Development",
+       "Corporate Training",
+       "Creative Arts Technology"
+   ],
+   "estimatedSalaryRange": "$55,000 - $120,000 per year (depending on experience and role)"
+   }
    ```
 
-2. Save changes and run the code again
-
-3. Expected restricted behavior:
+4. The application will then show skill gap analysis and prompt for user input:
 
    ```
-   User: Find me a flight to Tokyo on the 19
-   Assistant: I found a flight to Tokyo on the 19th of January 2025. The flight is with Air Japan and the price is $1200. Please let me know if you would like to book this flight.
+   Assistant: How can I help you?
+   User: How long will it take to gain the required skills?
+   ```
 
-   User: Yes
-   Assistant: I'm sorry, but I am just a virtual assistant and I don't have the capability to book flights.
+5. Expected follow-up response:
+   ```json
+   "Skill Acquisition Estimate":
+   {
+   "estimatedTime": {
+       "Unity/Unreal Engine proficiency": "3-6 months (focused learning and project-based practice)",
+       "Game mechanics and physics programming": "2-4 months (depending on your familiarity with algorithms and physics concepts)",
+       "3D modeling/animation skills": "4-6 months (if learning beginner-to-intermediate-level modeling tools like Blender or Maya)",
+       "Level design and storytelling techniques": "2-3 months (with regular game project work and creative design exercises)",
+       "Version control systems like Git": "1 month (trial-and-error practice with collaborative coding workflows)"
+   },
+   "totalEstimatedTime": "9-18 months (if pursued part-time with a consistent learning schedule)"
+   }
    ```
 
 ## Key Concepts
 
-- **Kernel Function Decorators:** Help the AI understand how to call your functions
-- **Function Choice Behavior:** Controls which functions are available to the AI
-- **Plugin Registration:** Makes your custom functions available to the Semantic Kernel
-- **Access Control:** Restricts which functions can be invoked by the AI assistant
+### Semantic Kernel vs Handlebars Templates
+
+- **Semantic Kernel Templates:** Use `{{$variableName}}` syntax for variable substitution
+- **Handlebars Templates:** Use `{{variableName}}` syntax and support more complex logic and formatting
+- **Template Formats:** Different template engines provide various capabilities for prompt construction
+
+### Template Configuration
+
+- **PromptTemplateConfig:** Defines the template structure, format, and metadata
+- **KernelArguments:** Provides variable values to be substituted in templates
+- **Template Rendering:** Converts templates with variables into executable prompts
+
+### Chat History Management
+
+- **ChatHistory:** Maintains conversation context across multiple interactions
+- **Message Types:** System, user, and assistant messages each serve different purposes
+- **Context Preservation:** Enables coherent multi-turn conversations
+
+## Best Practices
+
+1. **Template Design:** Structure prompts clearly with specific output format requirements
+2. **Variable Naming:** Use descriptive variable names that match your data structure
+3. **Error Handling:** Always handle potential rendering and execution errors
+4. **Context Management:** Maintain appropriate chat history for conversation flow
+
+## Cleanup
+
+When you've finished exploring, remember to delete the Azure resources you created to avoid unnecessary costs:
+
+1. Navigate to the [Azure portal](https://portal.azure.com)
+2. Find the resource group containing your resources
+3. Delete the resource group and all associated resources
 
 ## Conclusion
 
-You have successfully created an AI assistant using Semantic Kernel that can search for and book flights using custom plugin functions. You've also learned how to control which functions are available to the AI assistant for different scenarios.
+You have successfully created prompt templates using both Semantic Kernel and Handlebars formats, learned how to render templates with dynamic arguments, and built an interactive AI assistant that maintains conversation context. This foundation prepares you for more advanced prompt engineering and multi-agent scenarios.
